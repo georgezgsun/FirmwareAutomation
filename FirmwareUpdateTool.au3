@@ -30,6 +30,7 @@ Global $userName = "Unknown"
 Global $firmwareVersion = ""
 Global $libraryVersion = ""
 Global  $targetVersion = "1.3.0.2"
+Global $updatingEnd = False
 
 Global $workDir = "C:\FirmwareAutomation\"
 Global $filename = "C:\CopTrax Support\Tools\FirmwareUpdater.log"
@@ -45,25 +46,25 @@ FileClose($versionFile)
 
 If Not StringRegExp($targetVersion, "([0-9]+\.[0-9]+\.[0-9]+\.?[0-9a-zA-Z]*)") Then
 	LogWrite("Target firmware version has a wrong format. Please assign a correct firmware version before updating the firmware.")
+	$updatingEnd = True
 	Exit
 EndIf
 
 Global $firmwareFile = $workDir & "TriggerBox 2.0 App " & $targetVersion & ".hex"
 If Not FileExists($firmwareFile) Then
-	LogWrite("Cannot find " & $firmwareFile & ". Please provide a valid firmware file before updating.")
+	LogWrite("Cannot find " & $firmwareFile & ". Please provide a valid firmware hex file before updating.")
+	$updatingEnd = True
 	Exit
 EndIf
 
 HotKeySet("{Esc}", "HotKeyPressed") ; Esc to stop testing
 HotKeySet("q", "HotKeyPressed") ; Esc to stop testing
-Global $updatingEnd = False
 OnAutoItExitRegister("OnAutoItExit")	; Register OnAutoItExit to be called when the script is closed.
 AutoItSetOption ("WinTitleMatchMode", 2)	; match any substring in the title
 AutoItSetOption("SendKeyDelay", 100)
 
 EndCopTrax()
 Local $startTimes = FileGetSize($workDir & "user.flg")
-;LogWrite("Read start times is " & $startTimes)
 
 Switch $startTimes
 	Case 1
@@ -74,15 +75,21 @@ Switch $startTimes
 		FileCopy($workDir & "Cleanup.bat", "C:\CopTrax Support\Tools\Cleanup.bat", 1)	; force copy the cleanup.bat to the working folder
 		LogWrite("Firmware update automation tool begin the first part of firmware updating.")
 		RunValidationTool()
+		Sleep(1000)
+		RunValidationTool()
 		Exit
 	Case 2
 		LogWrite("Read start times is " & $startTimes)
 		LogWrite("Firmware update automation tool begin the second part of firmware updating.")
 		RunFirmwareTool()
+		Sleep(1000)
+		RunFirmwareTool()
 		Exit
 	Case 3, 4
 		LogWrite("Read start times is " & $startTimes)
 		LogWrite("Firmware update automation tool begin the last part of firmware updating.")
+		RunValidationTool()
+		Sleep(1000)
 		RunValidationTool()
 		Exit
 	Case Else
@@ -132,7 +139,7 @@ Func RunFirmwareTool()
 	LogWrite("Run " & $workDir & "PIC32UBL.exe at " &$workDir)
 	Run($workDir & "PIC32UBL.exe", $workDir)
 
-	Local $hWnd = GetWindowWaitHandle("PIC32")
+	Local $hWnd = GetHandleWindowWait("PIC32")
 	If $hWnd = 0 Then
 		LogWrite("Unable to run PIC32UBL.exe.")
 		$updatingEnd = True
@@ -147,12 +154,12 @@ Func RunFirmwareTool()
 	Local $txt = WinGetText($hWnd)
 	If StringInStr($txt, "reset device") Or WinExists("Error") Then
 		WinClose("Error")
-		LogWrite("Unable to connect to firmware. Try to run validation tool first.")
+		LogWrite("Unable to connect to firmware. Try again.")
 
 		WinClose($hWnd)
 		Sleep(1000)
 
-		$hWnd = GetWindowWaitHandle("Exit")
+		$hWnd = GetHandleWindowWait("Exit")
 		If $hWnd = 0 Then
 			LogWrite("Unable to run PIC32UBL.exe.")
 			$updatingEnd = True
@@ -160,8 +167,7 @@ Func RunFirmwareTool()
 		EndIf
 
 		ControlClick($hWnd, "", "&Yes")
-		RunValidationTool()
-		Exit
+		Return
 	EndIf
 
 	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:1]")	; click on Load Hex File
@@ -192,7 +198,7 @@ Func RunFirmwareTool()
 		Sleep(1000)
 	Until $done Or $i > 45
 
-	If $i > 45 Then
+	If Not $done Then
 		LogWrite("Programming failed. Get window text as " & $txt)
 		$updatingEnd = True
 		Exit
@@ -201,7 +207,7 @@ Func RunFirmwareTool()
 	LogWrite("Wait for hard reset to complete the firmware update.")
 	FileClose($logFile)
 
-	MsgBox($MB_OK, "Firmware update automation tool", "Please press the hard reset button after this window disappears to complete the firmware update.", 5)
+	MsgBox($MB_OK, "Firmware update automation tool", "Please press the hard reset button when the power LED turn solid red to complete the firmware update.", 10)
 	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:5]")	; click on Run Application button
 	Exit
 EndFunc
@@ -210,7 +216,7 @@ Func RunValidationTool()
 	LogWrite("Run " & $workDir & "CopTraxBoxII.exe at " &$workDir)
 	Run($workDir & "CopTraxBoxII.exe", $workDir)
 
-	Local $hWnd = GetWindowWaitHandle("Trigger")
+	Local $hWnd = GetHandleWindowWait("Trigger")
 	If $hWnd = 0 Then
 		LogWrite("Unable to trigger Validation Tool.")
 		$updatingEnd = True
@@ -220,21 +226,21 @@ Func RunValidationTool()
 	ControlClick($hWnd, "", "[NAME:libConnect]")
 	Sleep(1000)
 	If WinExists("CopTraxII", "OK") Then
-		LogWrite("Please press the hard reset button to verify the update result.")
 		ControlClick("CopTraxII", "OK", "OK")
+		LogWrite("A hard reset is required to complete the update.")
 		MsgBox($MB_OK, "Firmware update automation tool", "It is required to press the hard reset button to complete the firmware update. " & @CRLF & "Do not click this OK button.")
 		Exit
 	EndIf
 
 	$title = WinGetTitle($hwnd) ; CopTraxII -  Library Version:  1.0.1.5, Firmware Version:  2.1.1
 	Local $splittedTitle = StringRegExp($title, "([0-9]+\.[0-9]+\.[0-9]+\.?[0-9a-zA-Z]*)", $STR_REGEXPARRAYGLOBALMATCH)
-	If Not IsArray($splittedTitle) Then
-		LogWrite("Cannot connect to firmware.")
-		WinClose($hWnd)
-		Exit
-	Else
+	If IsArray($splittedTitle) And $splittedTitle[0] = 2 Then
 		$libraryVersion = $splittedTitle[0]
 		$firmwareVersion = $splittedTitle[1]
+	Else
+		LogWrite("Cannot connect to firmware. Try again.")
+		WinClose($hWnd)
+		Return
 	EndIf
 	$splittedTitle = StringRegExp(WinGetText($hwnd), "(?:Product: )([A-Za-z]{2}[0-9]{6})", $STR_REGEXPARRAYMATCH )
 	If IsArray($splittedTitle) Then
@@ -261,7 +267,7 @@ Func RunValidationTool()
 
 	ControlClick($hWnd, "", "Advance")	; set the heartbeat to off, preventing unnecessary reboot
 
-	Local $hAdv = GetWindowWaitHandle("Advance")
+	Local $hAdv = GetHandleWindowWait("Advance")
 	If $hAdv = 0 Then
 		LogWrite("Unable to open Advance Settings window.")
 		$updatingEnd = True
@@ -283,7 +289,7 @@ Func HotKeyPressed()
 	EndSwitch
 EndFunc
 
-Func GetWindowWaitHandle($title, $seconds = 10)
+Func GetHandleWindowWait($title, $seconds = 10)
 	Local $hWnd = 0
 	Local $i = 0
 	If $seconds < 1 Then $seconds = 1
