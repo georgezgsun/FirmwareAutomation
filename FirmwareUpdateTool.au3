@@ -1,6 +1,6 @@
 #RequireAdmin
 
-#pragma compile(FileVersion, 1.2.20.3)
+#pragma compile(FileVersion, 1.2.20.5)
 #pragma compile(FileDescription, Firmware Update Automation Tool)
 #pragma compile(ProductName, AutomationTest)
 #pragma compile(ProductVersion, 2.11)
@@ -63,6 +63,11 @@ OnAutoItExitRegister("OnAutoItExit")	; Register OnAutoItExit to be called when t
 AutoItSetOption ("WinTitleMatchMode", 2)	; match any substring in the title
 AutoItSetOption("SendKeyDelay", 100)
 
+If WinExists("", "Open CopTrax") Then
+	ControlClick("", "Open CopTrax", "[NAME:panelCopTrax]")
+	Sleep(1000)
+EndIf
+
 EndCopTrax()
 Local $startTimes = FileGetSize($workDir & "user.flg")
 
@@ -113,7 +118,7 @@ EndFunc
 Func OnAutoItExit()
 	FileClose($logFile)
     If Not $updatingEnd Then
-		Shutdown(2+4)
+		Shutdown(2+4+16)
 	EndIf
  EndFunc   ;==>OnAutoItExit
 
@@ -173,25 +178,35 @@ Func RunFirmwareTool()
 	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:1]")	; click on Load Hex File
 	Sleep(500)
 	Send($firmwareFile & "{ENTER}")
-	Sleep(1000)
-	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:8]")	; click on Erase-Program-Verify button
+	WaitFor($hWnd, "loaded successfully")
 
+	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:4]")	; click on Erase
+	WaitFor($hWnd, "Flash Erased")
+
+	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:2]")	; click on Program
+	WaitFor($hWnd, "Programming completed")
+
+	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:3]")	; click on Verification
+	WaitFor($hWnd, "Verification successfull")
+
+	LogWrite("New firmware has been programmed successfully. Reboot now to check the final result.")
+	FileClose($logFile)
+
+	Sleep(5000)	; add more delay before click on Run Application button
+	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:5]")	; click on Run Application button
+	$txt = WinGetText($hWnd)
+	LogWrite($txt)
+	FileClose($logFile)
+	Sleep(30000)
+	Exit
+EndFunc
+
+Func WaitFor($hwnd, $txt)
 	Local $done = False
 	Local $i = 0
-	Local $erased = False
 	Do
-		$txt = WinGetText($hWnd)
-		If Not $erased And StringInStr($txt, "Flash Erased") Then
-			LogWrite("Flash Erased in " & $i & "s.")
-			$erased = True
-		EndIf
-
-		If StringInStr($txt, "Programming completed") Then
-			LogWrite("Programming completed in " & $i & "s.")
-		EndIf
-
-		If StringInStr($txt, "Verification successfull") Then
-			LogWrite("Verification successfull in " & $i & "s.")
+		If StringInStr(WinGetText($hWnd), $txt) Then
+			LogWrite($txt & " in " & $i & "s.")
 			$done = True
 		EndIf
 		$i += 1
@@ -199,17 +214,12 @@ Func RunFirmwareTool()
 	Until $done Or $i > 45
 
 	If Not $done Then
-		LogWrite("Programming failed. Get window text as " & $txt)
+		LogWrite("Programming failed. Get window text as " & WinGetText($hWnd))
 		$updatingEnd = True
 		Exit
 	EndIf
 
-	LogWrite("Wait for hard reset to complete the firmware update.")
-	FileClose($logFile)
-
-	MsgBox($MB_OK, "Firmware update automation tool", "Please press the hard reset button when the power LED turn solid red to complete the firmware update.", 10)
-	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:5]")	; click on Run Application button
-	Exit
+	Return $done
 EndFunc
 
 Func RunValidationTool()
@@ -232,13 +242,13 @@ Func RunValidationTool()
 		Exit
 	EndIf
 
-	$title = WinGetTitle($hwnd) ; CopTraxII -  Library Version:  1.0.1.5, Firmware Version:  2.1.1
+	Local $title = WinGetTitle($hwnd) ; CopTraxII -  Library Version:  1.0.1.5, Firmware Version:  2.1.1
 	Local $splittedTitle = StringRegExp($title, "([0-9]+\.[0-9]+\.[0-9]+\.?[0-9a-zA-Z]*)", $STR_REGEXPARRAYGLOBALMATCH)
-	If IsArray($splittedTitle) And $splittedTitle[0] = 2 Then
+	If IsArray($splittedTitle) And UBound($splittedTitle) = 2 Then
 		$libraryVersion = $splittedTitle[0]
 		$firmwareVersion = $splittedTitle[1]
 	Else
-		LogWrite("Cannot connect to firmware. Try again.")
+		LogWrite("Cannot connect to firmware. Try again. " & $title)
 		WinClose($hWnd)
 		Return
 	EndIf
@@ -252,7 +262,7 @@ Func RunValidationTool()
 	EndIf
 	LogWrite("Reading from validation tool, the serial number of the box is " & $userName & ", the firmware version is " & $firmwareVersion & ", the library version is " & $libraryVersion)
 
-	ControlClick($hWnd, "", "[NAME:radioButton_HBOff]")	; set the heartbeat to off, preventing unnecessary reboot
+	;ControlClick($hWnd, "", "[NAME:radioButton_HBOff]")	; set the heartbeat to off, preventing unnecessary reboot
 
 	If _VersionCompare($firmwareVersion, $targetVersion) = 0 Then
 		LogWrite("The firmware has been uptodated to " & $firmwareVersion & ". Exit validation tool now.")
@@ -276,7 +286,7 @@ Func RunValidationTool()
 
 	LogWrite("Click on Enter Bootload button.")
 	ControlClick($hAdv, "", "Enter Bootload")	; Click on Enter Bootload button, and this may introduce a reboot
-	Sleep(1000)
+	Sleep(30000)	; wait long enough for the Bootload to take effect
 	LogWrite("Unable to click on Enter Bootload button.")
 	$updatingEnd = True
 	Exit
