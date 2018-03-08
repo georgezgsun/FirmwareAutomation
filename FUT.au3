@@ -1,6 +1,6 @@
-#RequireAdmin
+ #RequireAdmin
 
-#pragma compile(FileVersion, 1.2.20.6)
+#pragma compile(FileVersion, 1.2.20.7)
 #pragma compile(FileDescription, Firmware Update Automation Tool)
 #pragma compile(ProductName, AutomationTest)
 #pragma compile(ProductVersion, 1.1)
@@ -123,6 +123,7 @@ Func Cleanup()
 	Run("schtasks /Delete /TN Automation /F", "", @SW_HIDE)
 	Local $currentDir = "C:\CopTrax Support\Tools\"
 	FileMove($filename, $currentDir & $userName & ".log", 1)
+	ProcessClose("CopTraxBoxII.exe")
 	Run($currentDir & "Cleanup.bat")
 	$updatingEnd = True
 EndFunc
@@ -170,36 +171,52 @@ Func RunFirmwareTool()
 
 	Local $txt = WinGetText($hWnd)
 	If StringInStr($txt, "reset device") Or WinExists("Error") Then
-		WinClose("Error")
+		ProcessClose("PIC32UBL.exe")
+
+;		WinClose("Error")
 		LogWrite("Unable to connect to firmware. Try again.")
 
-		WinClose($hWnd)
-		Sleep(1000)
+;		WinClose($hWnd)
+;		Sleep(1000)
 
-		$hWnd = GetHandleWindowWait("Exit")
-		If $hWnd = 0 Then
-			LogWrite("Unable to run PIC32UBL.exe.")
-			$updatingEnd = True
-			Exit
-		EndIf
+;		$hWnd = GetHandleWindowWait("Exit")
+;		If $hWnd = 0 Then
+;			LogWrite("Unable to run PIC32UBL.exe.")
+;			$updatingEnd = True
+;			Exit
+;		EndIf
 
-		ControlClick($hWnd, "", "&Yes")
+;		ControlClick($hWnd, "", "&Yes")
 		Return
 	EndIf
 
 	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:1]")	; click on Load Hex File
 	Sleep(500)
-	Send($firmwareFile & "{ENTER}")
-	WaitFor($hWnd, "loaded successfully")
+	Send(" " & $firmwareFile & "{ENTER}")
+	If Not WaitFor($hWnd, "loaded successfully") Then Return False
+;	Local $i = 0
+;	While Not WaitFor($hWnd, "loaded successfully")
+;		ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:1]")	; click on Load Hex File
+;		Sleep(500)
+;		ControlSend("Open", "", "[CLASS:Edit; INSTANCE:1]", $firmwareFile)
+;		Sleep(200)
+;		ControlClick("Open", "", "&Open")
+;		$i += 1
+;		If $i > 3 Then
+;			ProcessClose("PIC32UBL.exe")
+;			Sleep(200)
+;			Return False
+;		EndIf
+;	WEnd
 
 	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:4]")	; click on Erase
-	WaitFor($hWnd, "Flash Erased")
+	If Not WaitFor($hWnd, "Flash Erased") Then Return False
 
 	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:2]")	; click on Program
-	WaitFor($hWnd, "Programming completed")
+	If Not WaitFor($hWnd, "Programming completed") Then Return False
 
 	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:3]")	; click on Verification
-	WaitFor($hWnd, "Verification successfull")
+	If Not WaitFor($hWnd, "Verification successfull") Then Return False
 
 	LogWrite("New firmware has been programmed successfully. Reboot now to check the final result.")
 	FileClose($logFile)
@@ -228,8 +245,9 @@ Func WaitFor($hwnd, $txt)
 
 	If Not $done Then
 		LogWrite("Programming failed. Get window text as " & WinGetText($hWnd))
-		$updatingEnd = True
-		Exit
+		ProcessClose("PIC32UBL.exe")
+		Sleep(200)
+		Return False
 	EndIf
 
 	Return $done
@@ -309,6 +327,7 @@ Func HotKeyPressed()
 	Switch @HotKeyPressed ; The last hotkey pressed.
 		Case "{Esc}", "q" ; KeyStroke is the {ESC} hotkey. to stop testing and quit
 			$updatingEnd = True	;	Stop testing marker
+			Exit
 	EndSwitch
 EndFunc
 
