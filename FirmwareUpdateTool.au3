@@ -33,17 +33,13 @@ Global $updatingEnd = False
 
 Global $workDir = @ScriptDir & "\"
 Local $destDir = "C:\CopTrax Support\Tools\FirmwareAutomation\"
-Local $rst = False
-Local $i = 0
-While ($workDir <> $destDir) And Not $rst And ($i < 3)
+Local $rst
+If $workDir <> $destDir Then
 	$rst = DirCopy($workDir, $destDir, 1)	; copies the directory $sourceDir and all sub-directories and files to $destDir in overwrite mode
-	$i += 1
-	Sleep(500)
-WEnd
-
-If Not $rst Then
-	MsgBox($MB_OK, "Firmware update automation tool", "Cannot autostart the firmware update tool.", 2)
-	Exit
+	If Not $rst Then
+		MsgBox($MB_OK, "Firmware update automation tool", "Cannot autostart the firmware update tool.", 2)
+		Exit
+	EndIf
 EndIf
 
 Global $filename = "C:\CopTrax Support\Tools\FirmwareUpdater.log"
@@ -245,9 +241,7 @@ Func RunValidationTool()
 	If WinExists("CopTraxII", "OK") Then
 		ControlClick("CopTraxII", "OK", "OK")
 		LogWrite("A hard reset is required to complete the update.")
-		MsgBox($MB_OK, "Firmware update automation tool", "It is required to press the hard reset button to complete the firmware update. " & @CRLF & "Do not click this OK button.", 20)
-		;Run(Shutdown(2+4+16)
-		Run($workDir & "ForceShutdown.bat")
+		MsgBox($MB_OK, "Firmware update automation tool", "It is required to press the hard reset button to complete the firmware update. " & @CRLF & "Do not click this OK button.")
 		Exit
 	EndIf
 
