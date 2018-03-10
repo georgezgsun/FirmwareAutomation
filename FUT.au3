@@ -35,14 +35,18 @@ Global $workDir = @ScriptDir & "\"
 Local $destDir = "C:\CopTrax Support\Tools\FirmwareAutomation\"
 Local $rst = False
 Local $i = 0
-While ($workDir <> $destDir) And Not $rst And ($i < 3)
-	$rst = DirCopy($workDir, $destDir, 1)	; copies the directory $sourceDir and all sub-directories and files to $destDir in overwrite mode
-	$i += 1
-	Sleep(500)
-WEnd
+If $workDir <> $destDir Then
+	While Not $rst And ($i < 3)
+		$rst = DirCopy($workDir, $destDir, 1)	; copies the directory $sourceDir and all sub-directories and files to $destDir in overwrite mode
+		$i += 1
+		Sleep(500)
+	WEnd
 
-If Not $rst Then
-	MsgBox($MB_OK, "Firmware update automation tool", "Cannot autostart the firmware update tool.", 2)
+	If Not $rst Then
+		MsgBox($MB_OK, "Firmware update automation tool", "Cannot autostart the firmware update tool.", 2)
+	Else
+		Run($workDir & "SetupFirmwareUpdate.bat")
+	EndIf
 	Exit
 EndIf
 
