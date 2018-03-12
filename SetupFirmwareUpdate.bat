@@ -6,5 +6,5 @@ schtasks /Delete /TN Automation /F
 schtasks /Create /XML autorun.xml /TN Automation
 Del /S /F user.flg
 ping localhost -n 5
-Start FirmwareUpdateTool.exe
+Start FUT.exe
 exit

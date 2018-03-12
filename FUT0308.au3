@@ -1,6 +1,5 @@
-#RequireAdmin
 
-#pragma compile(FileVersion, 1.2.20.10)
+#pragma compile(FileVersion, 1.2.20.8)
 #pragma compile(FileDescription, Firmware Update Automation Tool)
 #pragma compile(ProductName, AutomationTest)
 #pragma compile(ProductVersion, 1.1)
@@ -8,16 +7,17 @@
 #pragma compile(Icon, automation.ico)
 
 ;Firmware update
-;1. set autostart: copy all neccessary files to C; read target version number
-;2. Run Validation tool
-;3. Trying to connect to firmware. in case failed, run PIC programmer
-;4. After connect, check current firmware version first;
-;5. In case the firmware version is not the target version, go to Bootload
-;6. In case the firmware version is correct, do cleanup and restart the Coptrax
-;7. In PIC programmer, try to connect the bootload;
-;8. In case connected, load the hex file and program it;
-;9. In case not connected, reboot;
-;10. After 5 times reboot, do the cleanup;
+;1. set autostart, write automation.bat;
+;2. Open Validation tool, click on advance
+;3. Click on Enter Bootload
+;4. Box reboot; force reboot? set autostart;
+;5. Run automation, read status, kill the autostart
+;6. Kill Coptrax process
+;7. start program tool
+;8. click connection, two clicks
+;9. load hex file
+;10. click to program and write and verify the hex
+;11. click to run app
 
 #include <File.au3>
 #include <Misc.au3>
@@ -30,12 +30,6 @@ Global $firmwareVersion = ""
 Global $libraryVersion = ""
 Global $targetVersion = "1.3.0.2"
 Global $updatingEnd = False
-Global $pCopTrax = "IncaXPCApp.exe"
-
-If WinExists("", "Open CopTrax") Then
-	ControlClick("", "Open CopTrax", "[NAME:panelCopTrax]")
-	Sleep(1000)
-EndIf
 
 Global $workDir = @ScriptDir & "\"
 Local $destDir = "C:\CopTrax Support\Tools\FirmwareAutomation\"
@@ -49,21 +43,18 @@ If $workDir <> $destDir Then
 	WEnd
 
 	If Not $rst Then
-		MsgBox($MB_OK, "Firmware update automation tool", "Cannot autostart the firmware update tool.", 10)
-		Exit
+		MsgBox($MB_OK, "Firmware update automation tool", "Cannot autostart the firmware update tool.", 2)
 	Else
-		$workDir = $destDir
-;		FileChangeDir($destDir)
-;		FileDelete("user.flg")
-;		FileCopy("cleanup.bat", "C:\CopTrax Support\Tools", 1)
-;		Run(@comSpec & " /c schtasks /Delete /TN Automation /F")
-;		Sleep(500)
-;		Run(@comSpec & " /c schtasks /Create /XML autorun.xml' /TN Automation")
 		Run($workDir & "SetupFirmwareUpdate.bat")
-		MsgBox($MB_OK, "Firmware update automation tool", "The firmware update tool has been setup.", 2)
-		Exit
 	EndIf
+	Exit
 EndIf
+
+Global $filename = "C:\CopTrax Support\Tools\FirmwareUpdater.log"
+Global $logFile = FileOpen($filename, $FO_APPEND)
+Local $flagFile = FileOpen($workDir & "user.flg", $FO_APPEND)
+FileWrite($flagFile, "x")
+FileClose($flagFile)
 
 Local $versionFile = FileOpen($workDir & "version.cfg")
 $targetVersion = FileReadLine($versionFile)
@@ -71,68 +62,92 @@ $userName = FileReadLine($versionFile)
 FileClose($versionFile)
 
 If Not StringRegExp($targetVersion, "([0-9]+\.[0-9]+\.[0-9]+\.?[0-9a-zA-Z]*)") Then
-	MsgBox($MB_OK, "Target firmware version has a wrong format. Please assign a correct firmware version before updating the firmware.", 10)
+	LogWrite("Target firmware version has a wrong format. Please assign a correct firmware version before updating the firmware.")
+	$updatingEnd = True
 	Exit
 EndIf
 
 Global $firmwareFile = $workDir & "TriggerBox 2.0 App " & $targetVersion & ".hex"
 If Not FileExists($firmwareFile) Then
-	MsgBox($MB_OK, "Cannot find " & $firmwareFile & ". Please provide a valid firmware hex file before updating.", 10)
+	LogWrite("Cannot find " & $firmwareFile & ". Please provide a valid firmware hex file before updating.")
 	$updatingEnd = True
 	Exit
 EndIf
 
 HotKeySet("{Esc}", "HotKeyPressed") ; Esc to stop testing
 HotKeySet("q", "HotKeyPressed") ; Esc to stop testing
-;OnAutoItExitRegister("OnAutoItExit")	; Register OnAutoItExit to be called when the script is closed.
+OnAutoItExitRegister("OnAutoItExit")	; Register OnAutoItExit to be called when the script is closed.
 AutoItSetOption ("WinTitleMatchMode", 2)	; match any substring in the title
 AutoItSetOption("SendKeyDelay", 100)
 
-Global $filename = "C:\CopTrax Support\Tools\FirmwareUpdater.log"
-Global $logFile = FileOpen($filename, $FO_APPEND)
-Local $flagFile = FileOpen($workDir & "user.flg", $FO_APPEND)
-FileWrite($flagFile, "x")
-FileClose($flagFile)
 RegWrite("HKEY_CURRENT_USER\Control Panel\Desktop", "AutoEndTasks", "REG_SZ", 1)	; Shut down without user's response
 
+If WinExists("", "Open CopTrax") Then
+	ControlClick("", "Open CopTrax", "[NAME:panelCopTrax]")
+	Sleep(1000)
+EndIf
+
 EndCopTrax()
-
 Local $startTimes = FileGetSize($workDir & "user.flg")
-LogWrite("Reboot times is " & $startTimes & ". CopTrax App is terminated to continue the firmware update.")
+Local $command
 
-If $startTimes > 5 Then
-	CleanUp()
-EndIf
+Switch $startTimes
+	Case 1
+		LogWrite("Running application is terminated to continue the firmware updating. " & @CRLF &"Target firmware version read from version.cfg is " & $targetVersion)
+		FileCopy($workDir & "Cleanup.bat", "C:\CopTrax Support\Tools\Cleanup.bat", 1)	; force copy the cleanup.bat to the working folder
+		LogWrite("Firmware update automation tool begin the first part of firmware updating.")
+		RunValidationTool()
+		Sleep(1000)
+		RunValidationTool()
+		Exit
+	Case 2
+		LogWrite("Read start times is " & $startTimes)
+		LogWrite("Firmware update automation tool begin the second part of firmware updating.")
+		RunFirmwareTool()
+		Sleep(1000)
+		RunFirmwareTool()
+		Exit
+	Case 3, 4
+		LogWrite("Read start times is " & $startTimes)
+		LogWrite("Firmware update automation tool begin the last part of firmware updating.")
+		RunValidationTool()
+		Sleep(1000)
+		RunValidationTool()
+		Exit
+	Case Else
+		LogWrite("Read start times is " & $startTimes)
+		LogWrite("Unable to update the firmware by automation tool. Please update the firmware manually. ")
+		LogWrite("Save the log file for further investigation.")
+		Cleanup()
+EndSwitch
 
-If $startTimes = 1 Then
-	LogWrite("Try to update the firmware to version " & $targetVersion)
-EndIf
-
-RunValidationTool()
-RunValidationTool()
-Cleanup()
 Exit
 
 Func Cleanup()
 	FileClose($logFile)
-	Local $CopTraxAppDir = @ProgramFilesDir & "\IncaX\CopTrax\"
+	Run("schtasks /Delete /TN Automation /F", "", @SW_HIDE)
 	Local $currentDir = "C:\CopTrax Support\Tools\"
-	Run($CopTraxAppDir & $pCopTrax, $CopTraxAppDir)
-	Run(@comSpec & " /c schtasks /Delete /TN Automation /F")
 	FileMove($filename, $currentDir & $userName & ".log", 1)
 	ProcessClose("CopTraxBoxII.exe")
-	ProcessClose("PIC32UBL.exe")
 	Run($currentDir & "Cleanup.bat")
-	Exit
+	$updatingEnd = True
 EndFunc
 
-Func LogWrite($s, $show = True)
+Func OnAutoItExit()
+	FileClose($logFile)
+	Sleep(100)
+    If Not $updatingEnd Then
+		Shutdown(2+4+16)
+	EndIf
+ EndFunc   ;==>OnAutoItExit
+
+Func LogWrite($s)
 	_FileWriteLog($logFile,$s)
-	If Not $show Then Return
 	MsgBox($MB_OK, "Firmware update automation tool", $s, 2)
 EndFunc
 
 Func EndCopTrax()
+	Local $pCopTrax = "IncaXPCApp.exe"
 	If ProcessExists($pCopTrax) And ProcessClose($pCopTrax) Then
 		Return
 	EndIf
@@ -151,7 +166,7 @@ Func RunFirmwareTool()
 	Local $hWnd = GetHandleWindowWait("PIC32")
 	If $hWnd = 0 Then
 		LogWrite("Unable to run PIC32UBL.exe.")
-		Shutdown(1+4+16)
+		$updatingEnd = True
 		Exit
 	EndIf
 
@@ -163,33 +178,37 @@ Func RunFirmwareTool()
 	Local $txt = WinGetText($hWnd)
 	If StringInStr($txt, "reset device") Or WinExists("Error") Then
 		ProcessClose("PIC32UBL.exe")
-		LogWrite("Unable to connect to firmware.")
-		Shutdown(1+4+16)
-		Exit
+		LogWrite("Unable to connect to firmware. Try again.")
+		Return
 	EndIf
 
 	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:1]")	; click on Load Hex File
 	Sleep(500)
 	Send(" " & $firmwareFile & "{ENTER}")
 ;		ControlSend("Open", "", "[CLASS:Edit; INSTANCE:1]", $firmwareFile)
-	If Not WaitFor($hWnd, "loaded successfully") Then Exit
+	If Not WaitFor($hWnd, "loaded successfully") Then Return False
 
 	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:4]")	; click on Erase
-	If Not WaitFor($hWnd, "Flash Erased") Then Exit
+	If Not WaitFor($hWnd, "Flash Erased") Then Return False
 
 	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:2]")	; click on Program
-	If Not WaitFor($hWnd, "Programming completed") Then Exit
+	If Not WaitFor($hWnd, "Programming completed") Then Return False
 
 	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:3]")	; click on Verification
-	If Not WaitFor($hWnd, "Verification successfull") Then Exit
+	If Not WaitFor($hWnd, "Verification successfull") Then Return False
 
 	LogWrite("New firmware has been programmed successfully. Reboot now to check the final result.")
 	FileClose($logFile)
 
-	Sleep(2000)	; add more delay before click on Run Application button
+	Sleep(5000)	; add more delay before click on Run Application button
 	ControlClick($hWnd, "", "[CLASS:Button; INSTANCE:5]")	; click on Run Application button
-	Sleep(200)
-	Shutdown(1+4+16)
+;	$txt = WinGetText($hWnd)
+;	_FileWriteLog($logFile, $txt)
+;	FileClose($logFile)
+;	LogWrite($txt)
+	Shutdown(2+4+16)
+;	Sleep(30000)
+	Exit
 EndFunc
 
 Func WaitFor($hwnd, $txt)
@@ -221,6 +240,7 @@ Func RunValidationTool()
 	Local $hWnd = GetHandleWindowWait("Trigger")
 	If $hWnd = 0 Then
 		LogWrite("Unable to trigger Validation Tool.")
+		$updatingEnd = True
 		Exit
 	EndIf
 
@@ -228,8 +248,11 @@ Func RunValidationTool()
 	Sleep(1000)
 	If WinExists("CopTraxII", "OK") Then
 		ControlClick("CopTraxII", "OK", "OK")
-		RunFirmwareTool()
-		Shutdown(1+2+16)
+		LogWrite("A hard reset is required to complete the update.")
+		MsgBox($MB_OK, "Firmware update automation tool", "It is required to press the hard reset button to complete the firmware update. " & @CRLF & "Do not click this OK button.", 20)
+		;Run(Shutdown(2+4+16)
+		Run($workDir & "ForceShutdown.bat")
+		Exit
 	EndIf
 
 	Local $title = WinGetTitle($hwnd) ; CopTraxII -  Library Version:  1.0.1.5, Firmware Version:  2.1.1
@@ -248,7 +271,6 @@ Func RunValidationTool()
 		Local $versionFile = FileOpen($workDir & "version.cfg", 2)
 		FileWriteLine($versionFile, $targetVersion)
 		FileWriteLine($versionFile, $userName)
-		FileWriteLine($versionFile, $firmwareVersion)
 		FileClose($versionFile)
 	EndIf
 	LogWrite("Reading from validation tool, the serial number of the box is " & $userName & ", the firmware version is " & $firmwareVersion & ", the library version is " & $libraryVersion)
@@ -256,10 +278,11 @@ Func RunValidationTool()
 	;ControlClick($hWnd, "", "[NAME:radioButton_HBOff]")	; set the heartbeat to off, preventing unnecessary reboot
 
 	If _VersionCompare($firmwareVersion, $targetVersion) = 0 Then
-		LogWrite("The firmware has been uptodated to " & $firmwareVersion & ".")
-		Sleep(2000)
+		LogWrite("The firmware has been uptodated to " & $firmwareVersion & ". Exit validation tool now.")
+		Sleep(5000)
 		WinClose($hWnd)
 		Cleanup()
+		Run("c:\Program Files (x86)\IncaX\CopTrax\IncaXPCApp.exe", "c:\Program Files (x86)\IncaX\CopTrax")
 		Exit
 	EndIf
 
@@ -285,8 +308,7 @@ EndFunc
 Func HotKeyPressed()
 	Switch @HotKeyPressed ; The last hotkey pressed.
 		Case "{Esc}", "q" ; KeyStroke is the {ESC} hotkey. to stop testing and quit
-			LogWrite("Firmware update stopped by operator.")
-			FileClose($logFile)
+			$updatingEnd = True	;	Stop testing marker
 			Exit
 	EndSwitch
 EndFunc
