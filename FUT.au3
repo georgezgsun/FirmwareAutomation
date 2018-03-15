@@ -1,6 +1,6 @@
 #RequireAdmin
 
-#pragma compile(FileVersion, 1.2.20.10)
+#pragma compile(FileVersion, 1.2.20.12)
 #pragma compile(FileDescription, Firmware Update Automation Tool)
 #pragma compile(ProductName, AutomationTest)
 #pragma compile(ProductVersion, 1.1)
@@ -41,7 +41,7 @@ Global $workDir = @ScriptDir & "\"
 Local $destDir = "C:\CopTrax Support\Tools\FirmwareAutomation\"
 Local $rst = False
 Local $i = 0
-If $workDir <> $destDir Then
+If ($workDir <> $destDir) Or Not FileExists($workDir & "user.flg") Then
 	While Not $rst And ($i < 3)
 		$rst = DirCopy($workDir, $destDir, 1)	; copies the directory $sourceDir and all sub-directories and files to $destDir in overwrite mode
 		$i += 1
@@ -53,15 +53,15 @@ If $workDir <> $destDir Then
 		Exit
 	Else
 		$workDir = $destDir
-;		FileChangeDir($destDir)
-;		FileDelete("user.flg")
-;		FileCopy("cleanup.bat", "C:\CopTrax Support\Tools", 1)
-;		Run(@comSpec & " /c schtasks /Delete /TN Automation /F")
-;		Sleep(500)
-;		Run(@comSpec & " /c schtasks /Create /XML autorun.xml' /TN Automation")
-		Run($workDir & "SetupFirmwareUpdate.bat")
+		FileChangeDir($destDir)
+		FileDelete("user.flg")
+		FileCopy("cleanup.bat", "C:\CopTrax Support\Tools", 1)
+		Run(@comSpec & " /c schtasks /Delete /TN Automation /F")
+		Sleep(500)
+		Run(@comSpec & " /c schtasks /Create /XML autorun.xml /TN Automation", $workDir)
+;		Run($workDir & "SetupFirmwareUpdate.bat")
 		MsgBox($MB_OK, "Firmware update automation tool", "The firmware update tool has been setup.", 2)
-		Exit
+;		Exit
 	EndIf
 EndIf
 
